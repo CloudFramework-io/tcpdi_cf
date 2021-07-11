@@ -1,5 +1,7 @@
 <?php
 //
+//  TCPDI_CF Version 1.0.2 based on propa/tcpdi
+//
 //  TCPDI - Version 1.1
 //  Based on FPDI - Version 1.4.4
 //
@@ -19,16 +21,322 @@
 //
 
 // Dummy shim to allow unmodified use of fpdf_tpl
-require_once('tcpdf.php');
+class FPDF extends TCPDF {
 
-class FPDF_CF extends TCPDF_CF {}
+    var $_version ='cloudframework-io/tcpdi - https://cloudframework.io';
+    /**
+     * Adds some Metadata information (Document Information Dictionary)
+     * (see Chapter 14.3.3 Document Information Dictionary of PDF32000_2008.pdf Reference)
+     * @return int object id
+     * @protected
+     */
+    protected function _putinfo() {
+        $oid = $this->_newobj();
+        $out = '<<';
+        // store current isunicode value
+        $prev_isunicode = $this->isunicode;
+        if ($this->docinfounicode) {
+            $this->isunicode = true;
+        }
+        if (!TCPDF_STATIC::empty_string($this->title)) {
+            // The document's title.
+            $out .= ' /Title '.$this->_textstring($this->title, $oid);
+        }
+        if (!TCPDF_STATIC::empty_string($this->author)) {
+            // The name of the person who created the document.
+            $out .= ' /Author '.$this->_textstring($this->author, $oid);
+        }
+        if (!TCPDF_STATIC::empty_string($this->subject)) {
+            // The subject of the document.
+            $out .= ' /Subject '.$this->_textstring($this->subject, $oid);
+        }
+        if (!TCPDF_STATIC::empty_string($this->keywords)) {
+            // Keywords associated with the document.
+            $out .= ' /Keywords '.$this->_textstring($this->keywords, $oid);
+        }
+        if (!TCPDF_STATIC::empty_string($this->creator)) {
+            // If the document was converted to PDF from another format, the name of the conforming product that created the original document from which it was converted.
+            $out .= ' /Creator '.$this->_textstring($this->creator, $oid);
+        }
 
+        //BEGIN CLOUDFRAMEWORK CHANGES FOR SPANISH INVOICE HOMOLAGATION
+        if (isset($this->signature_data['info']['ref_homologation']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['ref_homologation'])) {
+            $out .= ' /ref_homologation '.$this->_textstring($this->signature_data['info']['ref_homologation'], $oid);
+        }
+        if (isset($this->signature_data['info']['software_name']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['software_name'])) {
+            $out .= ' /software_name '.$this->_textstring($this->signature_data['info']['software_name'], $oid);
+        }
+        if (isset($this->signature_data['info']['software_version']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['software_version'])) {
+            $out .= ' /software_version '.$this->_textstring($this->signature_data['info']['software_version'], $oid);
+        }
+        if (isset($this->signature_data['info']['timestamps']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['timestamps'])) {
+            $out .= ' /timestamps '.$this->_textstring($this->signature_data['info']['timestamps'], $oid);
+        }
+        //END CLOUDFRAMEWORK
+
+        // restore previous isunicode value
+        $this->isunicode = $prev_isunicode;
+        // default producer
+        $out .= ' /Producer '.$this->_textstring($this->_version, $oid);
+        // The date and time the document was created, in human-readable form
+        $out .= ' /CreationDate '.$this->_datestring(0, $this->doc_creation_timestamp);
+        // The date and time the document was most recently modified, in human-readable form
+        $out .= ' /ModDate '.$this->_datestring(0, $this->doc_modification_timestamp);
+        // A name object indicating whether the document has been modified to include trapping information
+        $out .= ' /Trapped /False';
+        $out .= ' >>';
+        $out .= "\n".'endobj';
+        $this->_out($out);
+        return $oid;
+    }
+
+    /**
+     * Add certification signature (DocMDP or UR3)
+     * You can set only one signature type
+     * @protected
+     * @author Nicola Asuni
+     * @since 4.6.008 (2009-05-07)
+     */
+    protected function _putsignature() {
+        if ((!$this->sign) OR (!isset($this->signature_data['cert_type']))) {
+            return;
+        }
+        $sigobjid = ($this->sig_obj_id + 1);
+        $out = $this->_getobj($sigobjid)."\n";
+        $out .= '<< /Type /Sig';
+        $out .= ' /Filter /Adobe.PPKLite';
+        $out .= ' /SubFilter /adbe.pkcs7.detached';
+        $out .= ' '.TCPDF_STATIC::$byterange_string;
+        $out .= ' /Contents<'.str_repeat('0', $this->signature_max_length).'>';
+        if (empty($this->signature_data['approval']) OR ($this->signature_data['approval'] != 'A')) {
+            $out .= ' /Reference ['; // array of signature reference dictionaries
+            $out .= ' << /Type /SigRef';
+            if ($this->signature_data['cert_type'] > 0) {
+                $out .= ' /TransformMethod /DocMDP';
+                $out .= ' /TransformParams <<';
+                $out .= ' /Type /TransformParams';
+                $out .= ' /P '.$this->signature_data['cert_type'];
+                $out .= ' /V /1.2';
+            } else {
+                $out .= ' /TransformMethod /UR3';
+                $out .= ' /TransformParams <<';
+                $out .= ' /Type /TransformParams';
+                $out .= ' /V /2.2';
+                if (!TCPDF_STATIC::empty_string($this->ur['document'])) {
+                    $out .= ' /Document['.$this->ur['document'].']';
+                }
+                if (!TCPDF_STATIC::empty_string($this->ur['form'])) {
+                    $out .= ' /Form['.$this->ur['form'].']';
+                }
+                if (!TCPDF_STATIC::empty_string($this->ur['signature'])) {
+                    $out .= ' /Signature['.$this->ur['signature'].']';
+                }
+                if (!TCPDF_STATIC::empty_string($this->ur['annots'])) {
+                    $out .= ' /Annots['.$this->ur['annots'].']';
+                }
+                if (!TCPDF_STATIC::empty_string($this->ur['ef'])) {
+                    $out .= ' /EF['.$this->ur['ef'].']';
+                }
+                if (!TCPDF_STATIC::empty_string($this->ur['formex'])) {
+                    $out .= ' /FormEX['.$this->ur['formex'].']';
+                }
+            }
+            $out .= ' >>'; // close TransformParams
+            // optional digest data (values must be calculated and replaced later)
+            //$out .= ' /Data ********** 0 R';
+            //$out .= ' /DigestMethod/MD5';
+            //$out .= ' /DigestLocation[********** 34]';
+            //$out .= ' /DigestValue<********************************>';
+            $out .= ' >>';
+            $out .= ' ]'; // end of reference
+        }
+        if (isset($this->signature_data['info']['Name']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Name'])) {
+            $out .= ' /Name '.$this->_textstring($this->signature_data['info']['Name'], $sigobjid);
+        }
+        if (isset($this->signature_data['info']['Location']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Location'])) {
+            $out .= ' /Location '.$this->_textstring($this->signature_data['info']['Location'], $sigobjid);
+        }
+        if (isset($this->signature_data['info']['Reason']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['Reason'])) {
+            $out .= ' /Reason '.$this->_textstring($this->signature_data['info']['Reason'], $sigobjid);
+        }
+        if (isset($this->signature_data['info']['ContactInfo']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['ContactInfo'])) {
+            $out .= ' /ContactInfo '.$this->_textstring($this->signature_data['info']['ContactInfo'], $sigobjid);
+        }
+
+        //BEGIN CLOUDFRAMEWORK CHANGES FOR SPANISH INVOICE HOMOLAGATION
+        if (isset($this->signature_data['info']['ref_homologation']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['ref_homologation'])) {
+            $out .= ' /ref_homologation '.$this->_textstring($this->signature_data['info']['ref_homologation'], $sigobjid);
+        }
+        if (isset($this->signature_data['info']['software_name']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['software_name'])) {
+            $out .= ' /software_name '.$this->_textstring($this->signature_data['info']['software_name'], $sigobjid);
+        }
+        if (isset($this->signature_data['info']['software_version']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['software_version'])) {
+            $out .= ' /software_version '.$this->_textstring($this->signature_data['info']['software_version'], $sigobjid);
+        }
+        if (isset($this->signature_data['info']['timestamps']) AND !TCPDF_STATIC::empty_string($this->signature_data['info']['timestamps'])) {
+            $out .= ' /timestamps '.$this->_textstring($this->signature_data['info']['timestamps'], $sigobjid);
+        }
+        //END CLOUDFRAMEWORK
+
+        $out .= ' /M '.$this->_datestring($sigobjid, $this->doc_modification_timestamp);
+        $out .= ' >>';
+        $out .= "\n".'endobj';
+        $this->_out($out);
+    }
+
+    /**
+     * Put XMP data object and return ID.
+     * @return (int) The object ID.
+     * @since 5.9.121 (2011-09-28)
+     * @protected
+     */
+    protected function _putXMP() {
+        $oid = $this->_newobj();
+        // store current isunicode value
+        $prev_isunicode = $this->isunicode;
+        $this->isunicode = true;
+        $prev_encrypted = $this->encrypted;
+        $this->encrypted = false;
+        // set XMP data
+        $xmp = '<?xpacket begin="'.TCPDF_FONTS::unichr(0xfeff, $this->isunicode).'" id="W5M0MpCehiHzreSzNTczkc9d"?>'."\n";
+        $xmp .= '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 4.2.1-c043 52.372728, 2009/01/18-15:08:04">'."\n";
+        $xmp .= "\t".'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'."\n";
+        $xmp .= "\t\t".'<rdf:Description rdf:about="" xmlns:dc="http://purl.org/dc/elements/1.1/">'."\n";
+        $xmp .= "\t\t\t".'<dc:format>application/pdf</dc:format>'."\n";
+        $xmp .= "\t\t\t".'<dc:title>'."\n";
+        $xmp .= "\t\t\t\t".'<rdf:Alt>'."\n";
+        $xmp .= "\t\t\t\t\t".'<rdf:li xml:lang="x-default">'.TCPDF_STATIC::_escapeXML($this->title).'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t".'</rdf:Alt>'."\n";
+        $xmp .= "\t\t\t".'</dc:title>'."\n";
+        $xmp .= "\t\t\t".'<dc:creator>'."\n";
+        $xmp .= "\t\t\t\t".'<rdf:Seq>'."\n";
+        $xmp .= "\t\t\t\t\t".'<rdf:li>'.TCPDF_STATIC::_escapeXML($this->author).'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t".'</rdf:Seq>'."\n";
+        $xmp .= "\t\t\t".'</dc:creator>'."\n";
+        $xmp .= "\t\t\t".'<dc:description>'."\n";
+        $xmp .= "\t\t\t\t".'<rdf:Alt>'."\n";
+        $xmp .= "\t\t\t\t\t".'<rdf:li xml:lang="x-default">'.TCPDF_STATIC::_escapeXML($this->subject).'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t".'</rdf:Alt>'."\n";
+        $xmp .= "\t\t\t".'</dc:description>'."\n";
+        $xmp .= "\t\t\t".'<dc:subject>'."\n";
+        $xmp .= "\t\t\t\t".'<rdf:Bag>'."\n";
+        $xmp .= "\t\t\t\t\t".'<rdf:li>'.TCPDF_STATIC::_escapeXML($this->keywords).'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t".'</rdf:Bag>'."\n";
+        $xmp .= "\t\t\t".'</dc:subject>'."\n";
+        $xmp .= "\t\t".'</rdf:Description>'."\n";
+        // convert doc creation date format
+        $dcdate = TCPDF_STATIC::getFormattedDate($this->doc_creation_timestamp);
+        $doccreationdate = substr($dcdate, 0, 4).'-'.substr($dcdate, 4, 2).'-'.substr($dcdate, 6, 2);
+        $doccreationdate .= 'T'.substr($dcdate, 8, 2).':'.substr($dcdate, 10, 2).':'.substr($dcdate, 12, 2);
+        $doccreationdate .= substr($dcdate, 14, 3).':'.substr($dcdate, 18, 2);
+        $doccreationdate = TCPDF_STATIC::_escapeXML($doccreationdate);
+        // convert doc modification date format
+        $dmdate = TCPDF_STATIC::getFormattedDate($this->doc_modification_timestamp);
+        $docmoddate = substr($dmdate, 0, 4).'-'.substr($dmdate, 4, 2).'-'.substr($dmdate, 6, 2);
+        $docmoddate .= 'T'.substr($dmdate, 8, 2).':'.substr($dmdate, 10, 2).':'.substr($dmdate, 12, 2);
+        $docmoddate .= substr($dmdate, 14, 3).':'.substr($dmdate, 18, 2);
+        $docmoddate = TCPDF_STATIC::_escapeXML($docmoddate);
+        $xmp .= "\t\t".'<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/">'."\n";
+        $xmp .= "\t\t\t".'<xmp:CreateDate>'.$doccreationdate.'</xmp:CreateDate>'."\n";
+        $xmp .= "\t\t\t".'<xmp:CreatorTool>'.$this->creator.'</xmp:CreatorTool>'."\n";
+        $xmp .= "\t\t\t".'<xmp:ModifyDate>'.$docmoddate.'</xmp:ModifyDate>'."\n";
+        $xmp .= "\t\t\t".'<xmp:MetadataDate>'.$doccreationdate.'</xmp:MetadataDate>'."\n";
+        $xmp .= "\t\t".'</rdf:Description>'."\n";
+        $xmp .= "\t\t".'<rdf:Description rdf:about="" xmlns:pdf="http://ns.adobe.com/pdf/1.3/">'."\n";
+        $xmp .= "\t\t\t".'<pdf:Keywords>'.TCPDF_STATIC::_escapeXML($this->keywords).'</pdf:Keywords>'."\n";
+        $xmp .= "\t\t\t".'<pdf:Producer>'.TCPDF_STATIC::_escapeXML($this->_textstring($this->_version)).'</pdf:Producer>'."\n";
+        $xmp .= "\t\t".'</rdf:Description>'."\n";
+        $xmp .= "\t\t".'<rdf:Description rdf:about="" xmlns:xmpMM="http://ns.adobe.com/xap/1.0/mm/">'."\n";
+        $uuid = 'uuid:'.substr($this->file_id, 0, 8).'-'.substr($this->file_id, 8, 4).'-'.substr($this->file_id, 12, 4).'-'.substr($this->file_id, 16, 4).'-'.substr($this->file_id, 20, 12);
+        $xmp .= "\t\t\t".'<xmpMM:DocumentID>'.$uuid.'</xmpMM:DocumentID>'."\n";
+        $xmp .= "\t\t\t".'<xmpMM:InstanceID>'.$uuid.'</xmpMM:InstanceID>'."\n";
+        $xmp .= "\t\t".'</rdf:Description>'."\n";
+        if ($this->pdfa_mode) {
+            $xmp .= "\t\t".'<rdf:Description rdf:about="" xmlns:pdfaid="http://www.aiim.org/pdfa/ns/id/">'."\n";
+            $xmp .= "\t\t\t".'<pdfaid:part>'.$this->pdfa_version.'</pdfaid:part>'."\n";
+            $xmp .= "\t\t\t".'<pdfaid:conformance>B</pdfaid:conformance>'."\n";
+            $xmp .= "\t\t".'</rdf:Description>'."\n";
+        }
+        // XMP extension schemas
+        $xmp .= "\t\t".'<rdf:Description rdf:about="" xmlns:pdfaExtension="http://www.aiim.org/pdfa/ns/extension/" xmlns:pdfaSchema="http://www.aiim.org/pdfa/ns/schema#" xmlns:pdfaProperty="http://www.aiim.org/pdfa/ns/property#">'."\n";
+        $xmp .= "\t\t\t".'<pdfaExtension:schemas>'."\n";
+        $xmp .= "\t\t\t\t".'<rdf:Bag>'."\n";
+        $xmp .= "\t\t\t\t\t".'<rdf:li rdf:parseType="Resource">'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:namespaceURI>http://ns.adobe.com/pdf/1.3/</pdfaSchema:namespaceURI>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:prefix>pdf</pdfaSchema:prefix>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:schema>Adobe PDF Schema</pdfaSchema:schema>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:property>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t".'<rdf:Seq>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'<rdf:li rdf:parseType="Resource">'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:category>internal</pdfaProperty:category>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:description>Adobe PDF Schema</pdfaProperty:description>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:name>InstanceID</pdfaProperty:name>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:valueType>URI</pdfaProperty:valueType>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t".'</rdf:Seq>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'</pdfaSchema:property>'."\n";
+        $xmp .= "\t\t\t\t\t".'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t\t".'<rdf:li rdf:parseType="Resource">'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:namespaceURI>http://ns.adobe.com/xap/1.0/mm/</pdfaSchema:namespaceURI>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:prefix>xmpMM</pdfaSchema:prefix>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:schema>XMP Media Management Schema</pdfaSchema:schema>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:property>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t".'<rdf:Seq>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'<rdf:li rdf:parseType="Resource">'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:category>internal</pdfaProperty:category>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:description>UUID based identifier for specific incarnation of a document</pdfaProperty:description>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:name>InstanceID</pdfaProperty:name>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:valueType>URI</pdfaProperty:valueType>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t".'</rdf:Seq>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'</pdfaSchema:property>'."\n";
+        $xmp .= "\t\t\t\t\t".'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t\t".'<rdf:li rdf:parseType="Resource">'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:namespaceURI>http://www.aiim.org/pdfa/ns/id/</pdfaSchema:namespaceURI>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:prefix>pdfaid</pdfaSchema:prefix>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:schema>PDF/A ID Schema</pdfaSchema:schema>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'<pdfaSchema:property>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t".'<rdf:Seq>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'<rdf:li rdf:parseType="Resource">'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:category>internal</pdfaProperty:category>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:description>Part of PDF/A standard</pdfaProperty:description>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:name>part</pdfaProperty:name>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:valueType>Integer</pdfaProperty:valueType>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'<rdf:li rdf:parseType="Resource">'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:category>internal</pdfaProperty:category>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:description>Amendment of PDF/A standard</pdfaProperty:description>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:name>amd</pdfaProperty:name>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:valueType>Text</pdfaProperty:valueType>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'<rdf:li rdf:parseType="Resource">'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:category>internal</pdfaProperty:category>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:description>Conformance level of PDF/A standard</pdfaProperty:description>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:name>conformance</pdfaProperty:name>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t\t".'<pdfaProperty:valueType>Text</pdfaProperty:valueType>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t\t".'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t\t\t\t".'</rdf:Seq>'."\n";
+        $xmp .= "\t\t\t\t\t\t".'</pdfaSchema:property>'."\n";
+        $xmp .= "\t\t\t\t\t".'</rdf:li>'."\n";
+        $xmp .= "\t\t\t\t".'</rdf:Bag>'."\n";
+        $xmp .= "\t\t\t".'</pdfaExtension:schemas>'."\n";
+        $xmp .= "\t\t".'</rdf:Description>'."\n";
+        $xmp .= $this->custom_xmp_rdf;
+        $xmp .= "\t".'</rdf:RDF>'."\n";
+        $xmp .= $this->custom_xmp;
+        $xmp .= '</x:xmpmeta>'."\n";
+        $xmp .= '<?xpacket end="w"?>';
+        $out = '<< /Type /Metadata /Subtype /XML /Length '.strlen($xmp).' >> stream'."\n".$xmp."\n".'endstream'."\n".'endobj';
+        // restore previous isunicode value
+        $this->isunicode = $prev_isunicode;
+        $this->encrypted = $prev_encrypted;
+        $this->_out($out);
+        return $oid;
+    }
+}
 require_once('fpdf_tpl.php');
-
 require_once('tcpdi_parser.php');
-
-
-class TCPDI_CF extends FPDF_TPL_CF {
+class TCPDI_CF extends FPDF_TPL {
     /**
      * Actual filename
      * @var string

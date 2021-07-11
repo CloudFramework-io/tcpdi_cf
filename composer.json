@@ -11,6 +11,14 @@
 		{ "name": "Adrian Martínez", "email": "am@cloudframework.io"}
 	],
 	"require": {
-		"php": ">=5.3.0"
+		"php": ">=5.3.0",
+		"tecnickcom/tcpdf": "^6.3"
+	},
+	"autoload": {
+		"classmap": [
+			"fpdf_tpl.php",
+			"tcpdi.php",
+			"tcpdi_parser.php"
+		]
 	}
 }
