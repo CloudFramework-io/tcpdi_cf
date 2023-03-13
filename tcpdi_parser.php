@@ -971,9 +971,12 @@ class tcpdi_parser {
             }
             $objdata[$i] = $element;
             ++$i;
-        } while ($element[0] != 'endobj');
+            // added && (strlen($element[0]) || strlen($element[1])) to avoid infinite loops for some corrupted pdfs
+        } while ($element[0] != 'endobj' && (strlen($element[0]) || strlen($element[1])));
         // remove closing delimiter
-        array_pop($objdata);
+        if(strlen($element[0]))
+            array_pop($objdata);
+        else return throw new Exception('Corrupted PDF Streams');
         // return raw object content
         return $objdata;
     }
